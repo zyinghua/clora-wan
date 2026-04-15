@@ -1,7 +1,7 @@
 import torch
 from PIL import Image
 from diffsynth import save_video, VideoData
-from diffsynth.pipelines.wan_video_new import WanVideoPipeline, ModelConfig
+from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
 
 
 pipe = WanVideoPipeline.from_pretrained(
