@@ -263,13 +263,28 @@ class WanVideoPipeline(BasePipeline):
         wantodance_keyframes: Optional[list[Image.Image]] = None,
         wantodance_keyframes_mask: Optional[list[int]] = None,
         framewise_decoding: bool = False,
+        # Prompt ablation
+        ablation_prompt: Optional[str] = None,
+        ablation_block_size: Optional[int] = None,
+        ablation_block_id: Optional[int] = None,
         # progress_bar
         progress_bar_cmd=tqdm,
         output_type: Optional[Literal["quantized", "floatpoint"]] = "quantized",
     ):
         # Scheduler
         self.scheduler.set_timesteps(num_inference_steps, denoising_strength=denoising_strength, shift=sigma_shift)
-        
+
+        # Prompt ablation validation
+        if ablation_prompt is not None:
+            assert ablation_block_size is not None and ablation_block_id is not None, \
+                "ablation_block_size and ablation_block_id must be provided when ablation_prompt is set."
+            num_blocks = len(self.dit.blocks)
+            assert num_blocks % ablation_block_size == 0, \
+                f"ablation_block_size ({ablation_block_size}) must divide the number of DiT blocks ({num_blocks})."
+            num_groups = num_blocks // ablation_block_size
+            assert 1 <= ablation_block_id <= num_groups, \
+                f"ablation_block_id must be in [1, {num_groups}], got {ablation_block_id}."
+
         # Inputs
         inputs_posi = {
             "prompt": prompt,
@@ -305,6 +320,15 @@ class WanVideoPipeline(BasePipeline):
         }
         for unit in self.units:
             inputs_shared, inputs_posi, inputs_nega = self.unit_runner(unit, self, inputs_shared, inputs_posi, inputs_nega)
+
+        # Encode ablation prompt (after units have loaded the text encoder)
+        if ablation_prompt is not None:
+            prompt_embedder = next(u for u in self.units if isinstance(u, WanVideoUnit_PromptEmbedder))
+            self.load_models_to_device(prompt_embedder.onload_model_names)
+            ablation_context = prompt_embedder.encode_prompt(self, ablation_prompt)
+            inputs_shared["ablation_context"] = ablation_context
+            inputs_shared["ablation_block_size"] = ablation_block_size
+            inputs_shared["ablation_block_id"] = ablation_block_id
 
         # Denoise
         self.load_models_to_device(self.in_iteration_models)
@@ -1311,6 +1335,10 @@ def model_fn_wan_video(
     wantodance_fps: float = 30.0,
     music_feature = None,
     skip_9th_layer: bool = False,
+    # Prompt ablation
+    ablation_context: Optional[torch.Tensor] = None,
+    ablation_block_size: Optional[int] = None,
+    ablation_block_id: Optional[int] = None,
     **kwargs,
 ):
     if sliding_window_size is not None and sliding_window_stride is not None:
@@ -1393,6 +1421,12 @@ def model_fn_wan_video(
         t_mod = t_mod + motion_controller(motion_bucket_id).unflatten(1, (6, dit.dim))
     context = dit.text_embedding(context)
 
+    # Prompt ablation: project the ablation context through the same text embedding
+    if ablation_context is not None:
+        ablation_context_emb = dit.text_embedding(ablation_context)
+    else:
+        ablation_context_emb = None
+
     x = latents
     # Merged cfg
     if x.shape[0] != context.shape[0]:
@@ -1406,6 +1440,8 @@ def model_fn_wan_video(
     if clip_feature is not None and dit.require_clip_embedding:
         clip_embdding = dit.img_emb(clip_feature)
         context = torch.cat([clip_embdding, context], dim=1)
+        if ablation_context_emb is not None:
+            ablation_context_emb = torch.cat([clip_embdding, ablation_context_emb], dim=1)
         
     # Camera control
     if hasattr(dit, "wantodance_enable_global") and dit.wantodance_enable_global and int(wantodance_fps + 0.5) != 30:
@@ -1536,8 +1572,18 @@ def model_fn_wan_video(
                 return vap(block, *inputs)
             return custom_forward
         
+        # Prompt ablation: determine which block indices get the ablation context
+        if ablation_context_emb is not None:
+            ablation_start = (ablation_block_id - 1) * ablation_block_size
+            ablation_end = ablation_block_id * ablation_block_size
+        else:
+            ablation_start = ablation_end = -1
+
         # Block
         for block_id, block in enumerate(dit.blocks):
+            # Select context for this block (ablation or original)
+            block_context = ablation_context_emb if ablation_start <= block_id < ablation_end else context
+
             if skip_9th_layer:
                 # This is only used in WanToDance
                 if block_id == 9:
@@ -1547,23 +1593,23 @@ def model_fn_wan_video(
                     with torch.autograd.graph.save_on_cpu():
                         x, x_vap = torch.utils.checkpoint.checkpoint(
                             create_custom_forward_vap(block, vap),
-                            x, context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id,
+                            x, block_context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id,
                             use_reentrant=False
                         )
                 elif use_gradient_checkpointing:
                     x, x_vap = torch.utils.checkpoint.checkpoint(
                         create_custom_forward_vap(block, vap),
-                        x, context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id,
+                        x, block_context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id,
                         use_reentrant=False
                     )
                 else:
-                    x, x_vap = vap(block, x, context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id)
+                    x, x_vap = vap(block, x, block_context, t_mod, freqs, x_vap, context_vap, t_mod_vap, freqs_vap, block_id)
             else:
                 x = gradient_checkpoint_forward(
                     block,
                     use_gradient_checkpointing,
                     use_gradient_checkpointing_offload,
-                    x, context, t_mod, freqs
+                    x, block_context, t_mod, freqs
                 )
               
             
