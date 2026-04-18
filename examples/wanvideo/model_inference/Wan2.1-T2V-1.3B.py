@@ -20,7 +20,7 @@ video = pipe(
     ablation_prompt="A cat running on grass.",
     ablation_block_size=5,
     ablation_block_id=1,
-    seed=0, tiled=True,
+    seed=None, tiled=True,
 )
 save_video(video, "video_wan_out.mp4", fps=15, quality=5)
 
