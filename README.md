@@ -1,4 +1,4 @@
-# diffsynth-wan21-t2v-13b
+# Repo for CLoRA based on Wan 2.1 T2V 1.3B
 
 Experiments on block-level LoRA (B-LoRA-style) analysis for the Wan 2.1 T2V-1.3B video DiT, built on top of DiffSynth.
 
