@@ -23,11 +23,6 @@ ablation_tasks =[
     # === CONTENT ABLATION (Changing identity, keeping shape/motion stable) ===
     {
         "category": "content",
-        "base_prompt": "A video of a pickup truck driving.",
-        "ablation_prompt": "A video of a sports car driving."
-    },
-    {
-        "category": "content",
         "base_prompt": "A video of an astronaut walking.",
         "ablation_prompt": "A video of a robot walking."
     },
@@ -35,18 +30,8 @@ ablation_tasks =[
     # === STYLE ABLATION (Changing texture/color/medium, keeping shape/motion stable) ===
     {
         "category": "style",
-        "base_prompt": "A video of a wooden chair.",
-        "ablation_prompt": "A video of a metallic chair."
-    },
-    {
-        "category": "style",
         "base_prompt": "A video of a blue sedan driving.",
         "ablation_prompt": "A video of a red sedan driving."
-    },
-    {
-        "category": "style",
-        "base_prompt": "A 3D CGI render of a cat sleeping.",
-        "ablation_prompt": "A watercolor painting of a cat sleeping."
     },
 
     # === MOTION ABLATION (Changing temporal dynamics, keeping pose/structure stable) ===
@@ -57,9 +42,9 @@ ablation_tasks =[
     },
     {
         "category": "motion",
-        "base_prompt": "A video of a vinyl record spinning clockwise.",
-        "ablation_prompt": "A video of a vinyl record spinning counter-clockwise."
-    }
+        "base_prompt": "A video shot of a bird walking.",
+        "ablation_prompt": "A video shot of a bird flying."
+    },
 ]
 
 ablation_range = {
