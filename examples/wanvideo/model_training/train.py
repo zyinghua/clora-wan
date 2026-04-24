@@ -3,7 +3,51 @@ from diffsynth.core import UnifiedDataset
 from diffsynth.core.data.operators import LoadVideo, LoadAudio, ImageCropAndResize, ToAbsolutePath
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
 from diffsynth.diffusion import *
+from diffsynth.utils.lora import (
+    build_block_lora_target_regex,
+    filter_block_lora_state_dict,
+    parse_block_ids_cli,
+    resolve_dit_block_indices,
+)
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
+
+class BlockGroupSplittingModelLogger(ModelLogger):
+    """Saves the joint LoRA checkpoint plus one file per block group."""
+
+    def __init__(self, output_path, block_ids, block_stride,
+                 remove_prefix_in_ckpt=None, state_dict_converter=lambda x: x):
+        super().__init__(output_path, remove_prefix_in_ckpt, state_dict_converter)
+        self.block_ids = list(block_ids)
+        self.block_stride = block_stride
+
+    def _write_per_group(self, accelerator, state_dict, base_name):
+        stem, ext = os.path.splitext(base_name)
+        for bid in self.block_ids:
+            sub = filter_block_lora_state_dict(state_dict, [bid], stride=self.block_stride)
+            if not sub:
+                print(f"[B-LoRA] no LoRA tensors found for group {bid} (stride {self.block_stride}); skipping per-group save.")
+                continue
+            path = os.path.join(self.output_path, f"{stem}_g{bid}{ext}")
+            accelerator.save(sub, path, safe_serialization=True)
+            print(f"[B-LoRA] saved group {bid} ({len(sub)} tensors) -> {path}")
+
+    def _save_with_split(self, accelerator, model, file_name):
+        accelerator.wait_for_everyone()
+        state_dict = accelerator.get_state_dict(model)
+        if accelerator.is_main_process:
+            state_dict = accelerator.unwrap_model(model).export_trainable_state_dict(state_dict, remove_prefix=self.remove_prefix_in_ckpt)
+            state_dict = self.state_dict_converter(state_dict)
+            os.makedirs(self.output_path, exist_ok=True)
+            joint_path = os.path.join(self.output_path, file_name)
+            accelerator.save(state_dict, joint_path, safe_serialization=True)
+            self._write_per_group(accelerator, state_dict, file_name)
+
+    def on_epoch_end(self, accelerator, model, epoch_id):
+        self._save_with_split(accelerator, model, f"epoch-{epoch_id}.safetensors")
+
+    def save_model(self, accelerator, model, file_name):
+        self._save_with_split(accelerator, model, file_name)
 
 
 class WanTrainingModule(DiffusionTrainingModule):
@@ -13,6 +57,7 @@ class WanTrainingModule(DiffusionTrainingModule):
         tokenizer_path=None, audio_processor_path=None,
         trainable_models=None,
         lora_base_model=None, lora_target_modules="", lora_rank=32, lora_checkpoint=None,
+        lora_block_ids=None, lora_block_stride=1,
         preset_lora_path=None, preset_lora_model=None,
         use_gradient_checkpointing=True,
         use_gradient_checkpointing_offload=False,
@@ -36,7 +81,28 @@ class WanTrainingModule(DiffusionTrainingModule):
         audio_processor_config = self.parse_path_or_model_id(audio_processor_path)
         self.pipe = WanVideoPipeline.from_pretrained(torch_dtype=torch.bfloat16, device=device, model_configs=model_configs, tokenizer_config=tokenizer_config, audio_processor_config=audio_processor_config)
         self.pipe = self.split_pipeline_units(task, self.pipe, trainable_models, lora_base_model)
-        
+
+        # B-LoRA-style block scoping: translate (block_ids, stride, per-block targets)
+        # into a PEFT-compatible regex and hand it to the standard LoRA path.
+        if lora_block_ids and lora_base_model is not None:
+            block_ids = parse_block_ids_cli(lora_block_ids)
+            base_model = getattr(self.pipe, lora_base_model, None)
+            num_layers = len(base_model.blocks) if base_model is not None and hasattr(base_model, "blocks") else None
+            if num_layers is None:
+                raise ValueError(
+                    f"--lora_block_ids is set but `pipe.{lora_base_model}` has no `.blocks` attribute; "
+                    "block-scoped LoRA is only supported for DiT-like models."
+                )
+            indices = resolve_dit_block_indices(num_layers, block_ids, lora_block_stride)
+            if not indices:
+                raise ValueError(f"lora_block_ids={lora_block_ids} with stride={lora_block_stride} resolved to zero DiT indices (num_layers={num_layers}).")
+            per_block_targets = [t.strip() for t in (lora_target_modules or "").split(",") if t.strip()]
+            if not per_block_targets:
+                raise ValueError("--lora_block_ids requires --lora_target_modules, e.g. 'self_attn.q,self_attn.k,self_attn.v,self_attn.o'.")
+            lora_target_modules = build_block_lora_target_regex(indices, per_block_targets)
+            print(f"[B-LoRA] block_ids={block_ids}, stride={lora_block_stride} -> DiT indices {indices}; targets per block: {per_block_targets}")
+            print(f"[B-LoRA] PEFT target_modules regex: {lora_target_modules}")
+
         # Training mode
         self.switch_pipe_to_training_mode(
             self.pipe, trainable_models,
@@ -163,6 +229,8 @@ if __name__ == "__main__":
         lora_target_modules=args.lora_target_modules,
         lora_rank=args.lora_rank,
         lora_checkpoint=args.lora_checkpoint,
+        lora_block_ids=args.lora_block_ids,
+        lora_block_stride=args.lora_block_stride,
         preset_lora_path=args.preset_lora_path,
         preset_lora_model=args.preset_lora_model,
         use_gradient_checkpointing=args.use_gradient_checkpointing,
@@ -175,10 +243,18 @@ if __name__ == "__main__":
         max_timestep_boundary=args.max_timestep_boundary,
         min_timestep_boundary=args.min_timestep_boundary,
     )
-    model_logger = ModelLogger(
-        args.output_path,
-        remove_prefix_in_ckpt=args.remove_prefix_in_ckpt,
-    )
+    if args.lora_block_ids:
+        model_logger = BlockGroupSplittingModelLogger(
+            args.output_path,
+            block_ids=parse_block_ids_cli(args.lora_block_ids),
+            block_stride=args.lora_block_stride,
+            remove_prefix_in_ckpt=args.remove_prefix_in_ckpt,
+        )
+    else:
+        model_logger = ModelLogger(
+            args.output_path,
+            remove_prefix_in_ckpt=args.remove_prefix_in_ckpt,
+        )
     launcher_map = {
         "sft:data_process": launch_data_process_task,
         "direct_distill:data_process": launch_data_process_task,
