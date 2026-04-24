@@ -50,7 +50,7 @@ def add_lora_config(parser: argparse.ArgumentParser):
     parser.add_argument("--lora_target_modules", type=str, default="q,k,v,o,ffn.0,ffn.2", help="Which layers LoRA is added to.")
     parser.add_argument("--lora_rank", type=int, default=32, help="Rank of LoRA.")
     parser.add_argument("--lora_checkpoint", type=str, default=None, help="Path to the LoRA checkpoint. If provided, LoRA will be loaded from this checkpoint.")
-    parser.add_argument("--preset_lora_path", type=str, default=None, help="Path to the preset LoRA checkpoint. If provided, this LoRA will be fused to the base model.")
+    parser.add_argument("--preset_lora_path", type=str, default=None, help="Path(s) to existing LoRA checkpoint(s) to fuse into the base model before training a new LoRA. Single path: 'foo.safetensors'. Multiple presets with optional per-LoRA alpha: 'appearance.safetensors:1.0,style.safetensors:0.5'.")
     parser.add_argument("--preset_lora_model", type=str, default=None, help="Which model the preset LoRA is fused to.")
     parser.add_argument("--lora_block_ids", type=str, default=None, help="B-LoRA-style block-group indices to restrict LoRA to, e.g. '0,1' or '0-2'. Combined with --lora_block_stride to pick concrete DiT blocks. When set, --lora_target_modules must be dotted sub-paths under a DiT block (e.g. 'self_attn.q,self_attn.k,self_attn.v,self_attn.o'), not bare tokens.")
     parser.add_argument("--lora_block_stride", type=int, default=1, help="Number of consecutive DiT blocks per B-LoRA group. Only used when --lora_block_ids is set.")

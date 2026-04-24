@@ -12,6 +12,34 @@ from diffsynth.utils.lora import (
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
+def _parse_preset_lora_specs(spec: str):
+    """Parse ``--preset_lora_path`` into a list of ``(path, alpha)`` pairs.
+
+    Accepts either a single path (legacy single-preset behavior, alpha=1) or a
+    comma-separated list of ``path[:alpha]`` items, e.g.
+    ``"appearance.safetensors:1.0,style.safetensors:0.5"``. Each preset is
+    fused additively into the base weights before the new trainable LoRA is
+    attached, so subsequent items see the cumulative fused base.
+    """
+    out = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if ":" in token:
+            path, alpha_str = token.rsplit(":", 1)
+            try:
+                alpha = float(alpha_str.strip())
+                path = path.strip()
+            except ValueError:
+                # Treat the colon as part of the path (e.g. drive letter).
+                path, alpha = token, 1.0
+        else:
+            path, alpha = token, 1.0
+        out.append((path, alpha))
+    return out
+
+
 class BlockGroupSplittingModelLogger(ModelLogger):
     """Saves the joint LoRA checkpoint plus one file per block group."""
 
@@ -81,6 +109,26 @@ class WanTrainingModule(DiffusionTrainingModule):
         audio_processor_config = self.parse_path_or_model_id(audio_processor_path)
         self.pipe = WanVideoPipeline.from_pretrained(torch_dtype=torch.bfloat16, device=device, model_configs=model_configs, tokenizer_config=tokenizer_config, audio_processor_config=audio_processor_config)
         self.pipe = self.split_pipeline_units(task, self.pipe, trainable_models, lora_base_model)
+
+        # Multi-preset LoRA fusion: load 0..N existing LoRAs into the base
+        # weights before any new LoRA adapters are attached. This enables
+        # workflows like "freeze appearance, train motion": pass an appearance
+        # LoRA via --preset_lora_path and the new motion LoRA will train on top
+        # of the fused base. Single-path strings without colons keep their
+        # legacy alpha=1 behavior; multi-preset uses path[:alpha] comma-separated.
+        if preset_lora_path:
+            preset_specs = _parse_preset_lora_specs(preset_lora_path)
+            if preset_specs:
+                if preset_lora_model is None:
+                    raise ValueError("--preset_lora_path requires --preset_lora_model.")
+                target = getattr(self.pipe, preset_lora_model, None)
+                if target is None:
+                    raise ValueError(f"pipe has no `{preset_lora_model}` attribute to fuse the preset LoRA into.")
+                for path, alpha in preset_specs:
+                    print(f"[preset-LoRA] fusing {path} into pipe.{preset_lora_model} with alpha={alpha}")
+                    self.pipe.load_lora(target, path, alpha=alpha)
+            # Suppress parent's single-preset reload path (we just did it ourselves).
+            preset_lora_path = None
 
         # B-LoRA-style block scoping: translate (block_ids, stride, per-block targets)
         # into a PEFT-compatible regex and hand it to the standard LoRA path.
