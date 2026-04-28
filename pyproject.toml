@@ -52,6 +52,16 @@ audio = [
     "torchaudio",
     "torchcodec"
 ]
+# For NVIDIA drivers that support CUDA <= 12.8 (e.g. driver 570.x).
+# The `+cu128` local version pins the CUDA-12.8 wheel; the index URL
+# must be passed on the command line because pyproject.toml has no
+# field for it. Install with:
+#   pip install -e ".[cu128]" --index-url https://download.pytorch.org/whl/cu128
+cu128 = [
+    "torch==2.11.0+cu128",
+    "torchvision==0.26.0+cu128",
+    "torchaudio==2.11.0+cu128"
+]
 
 [tool.setuptools]
 include-package-data = true
