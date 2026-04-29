@@ -49,8 +49,8 @@ ablation_tasks =[
 
 ablation_range = {
     5: range(1, 7),
-    10: range(1, 4),
-    3: range(1, 11),
+    # 10: range(1, 4),
+    # 3: range(1, 11),
 }
 
 def format_filename_string(text):
@@ -89,7 +89,7 @@ for ablation_block_size in ablation_range.keys():
             )
             
             # Formats precisely to: video_wan_out_<motion/style/content>-<block_size>-<ablation_block_id>-<text_prompt_with_underline_connection>.mp4
-            out_name = f"video_wan_out_{category}-{ablation_block_size}-{ablation_block_id}-{prompt_str}.mp4"
+            out_name = f"video_wan_out_{category}-{ablation_block_size}-{ablation_block_id}-{prompt_str}-{format_filename_string(ablation_prompt)}.mp4"
             save_video(video, out_name, fps=15, quality=5)
             
             print(f"  -> Saved {out_name}")
