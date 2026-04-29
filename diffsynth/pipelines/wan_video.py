@@ -326,9 +326,9 @@ class WanVideoPipeline(BasePipeline):
             prompt_embedder = next(u for u in self.units if isinstance(u, WanVideoUnit_PromptEmbedder))
             self.load_models_to_device(prompt_embedder.onload_model_names)
             ablation_context = prompt_embedder.encode_prompt(self, ablation_prompt)
-            inputs_shared["ablation_context"] = ablation_context
-            inputs_shared["ablation_block_size"] = ablation_block_size
-            inputs_shared["ablation_block_id"] = ablation_block_id
+            inputs_posi["ablation_context"] = ablation_context
+            inputs_posi["ablation_block_size"] = ablation_block_size
+            inputs_posi["ablation_block_id"] = ablation_block_id
 
         # Denoise
         self.load_models_to_device(self.in_iteration_models)
