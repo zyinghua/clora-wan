@@ -84,7 +84,7 @@ for ablation_block_size in ablation_range.keys():
                 ablation_prompt=ablation_prompt,
                 ablation_block_size=ablation_block_size,
                 ablation_block_id=ablation_block_id,
-                seed=42,
+                seed=None,
                 tiled=True,
             )
             
