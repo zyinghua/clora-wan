@@ -235,7 +235,55 @@ def wan_parser():
     parser.add_argument("--min_timestep_boundary", type=float, default=0.0, help="Min timestep boundary (for mixed models, e.g., Wan-AI/Wan2.2-I2V-A14B).")
     parser.add_argument("--initialize_model_on_cpu", default=False, action="store_true", help="Whether to initialize models on CPU.")
     parser.add_argument("--framewise_decoding", default=False, action="store_true", help="Enable it if this model is a WanToDance global model.")
+    parser.add_argument(
+        "--video_path", type=str, default=None,
+        help=(
+            "Path(s) to the video(s) the LoRA should fit onto. When set, this bypasses "
+            "--dataset_metadata_path: an inline 1-row (or N-row) metadata.csv is generated "
+            "inside --output_path. Use comma-separated absolute paths for multiple clips. "
+            "Absolute paths ignore --dataset_base_path; relative paths are joined with it."
+        ),
+    )
+    parser.add_argument(
+        "--video_prompt", type=str, default=None,
+        help=(
+            "Prompt(s) paired with --video_path. Either one prompt for all clips, or a "
+            "'|'-separated list matching --video_path order (use '|' since prompts often contain commas)."
+        ),
+    )
     return parser
+
+
+def _build_inline_video_metadata(accelerator, args):
+    """Materialize --video_path / --video_prompt into a CSV the standard dataset path can consume.
+
+    Writes ``<output_path>/_inline_video_metadata.csv`` on the main process and sets
+    ``args.dataset_metadata_path`` to point at it. Returns the list of (path, prompt) pairs.
+    """
+    import pandas as pd
+    paths = [p.strip() for p in args.video_path.split(",") if p.strip()]
+    if not paths:
+        raise ValueError("--video_path is empty after parsing.")
+    if args.video_prompt is None:
+        raise ValueError("--video_path requires --video_prompt.")
+    prompts = [p.strip() for p in args.video_prompt.split("|")]
+    if len(prompts) == 1 and len(paths) > 1:
+        prompts = prompts * len(paths)
+    if len(prompts) != len(paths):
+        raise ValueError(
+            f"--video_path has {len(paths)} item(s) but --video_prompt has {len(prompts)} (split on '|'); "
+            "pass a single prompt or exactly one per video."
+        )
+    os.makedirs(args.output_path, exist_ok=True)
+    inline_path = os.path.join(args.output_path, "_inline_video_metadata.csv")
+    if accelerator.is_main_process:
+        pd.DataFrame({"video": paths, "prompt": prompts}).to_csv(inline_path, index=False)
+        print(f"[single-video] wrote inline metadata to {inline_path}")
+        for p, q in zip(paths, prompts):
+            print(f"  - video={p}\n    prompt={q}")
+    accelerator.wait_for_everyone()
+    args.dataset_metadata_path = inline_path
+    return list(zip(paths, prompts))
 
 
 if __name__ == "__main__":
@@ -245,6 +293,8 @@ if __name__ == "__main__":
         gradient_accumulation_steps=args.gradient_accumulation_steps,
         kwargs_handlers=[accelerate.DistributedDataParallelKwargs(find_unused_parameters=args.find_unused_parameters)],
     )
+    if args.video_path:
+        _build_inline_video_metadata(accelerator, args)
     dataset = UnifiedDataset(
         base_path=args.dataset_base_path,
         metadata_path=args.dataset_metadata_path,
