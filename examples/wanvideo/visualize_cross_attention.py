@@ -427,26 +427,56 @@ def _save_figures(
             return
 
         # --- 2) Per-text-token spatial heatmaps (rows = tokens, cols = MBs) ---
-        # Saved twice: global vmax (faithful magnitudes) + per-row vmax (spatial structure).
+        # Saved THREE times per view, all using the same probs but different scaling/data:
+        #   global  : full-Sk probs, one shared vmax across all rows × MBs
+        #   rownorm : full-Sk probs, per-row vmax across MBs
+        #   realnorm: real-tokens-only renormalized probs (each patch's distribution is
+        #             restricted to [:seq_len] and re-divided by its sum so it sums to 1
+        #             over real prompt tokens — drops the padding "attention sink" mass).
         ntok = min(max_tokens_grid, seq_len)
-        all_token_maps = [
-            [mb_results[mb_id][probs_key][:, ti].reshape(h, w) for mb_id in range(K)]
-            for ti in range(ntok)
-        ]
-        global_vmax = max(
-            float(m.max()) for token_maps in all_token_maps for m in token_maps
+
+        def _build_token_maps(use_realnorm: bool):
+            maps = []
+            for ti in range(ntok):
+                per_mb = []
+                for mb_id in range(K):
+                    P = mb_results[mb_id][probs_key]  # [hw, Sk]
+                    if use_realnorm:
+                        P_real = P[:, :seq_len]
+                        denom = P_real.sum(axis=-1, keepdims=True)
+                        P_use = P_real / np.maximum(denom, 1e-12)
+                    else:
+                        P_use = P
+                    per_mb.append(P_use[:, ti].reshape(h, w))
+                maps.append(per_mb)
+            return maps
+
+        all_token_maps_full = _build_token_maps(use_realnorm=False)
+        all_token_maps_real = _build_token_maps(use_realnorm=True)
+        global_vmax_full = max(
+            float(m.max()) for token_maps in all_token_maps_full for m in token_maps
+        ) + 1e-12
+        global_vmax_real = max(
+            float(m.max()) for token_maps in all_token_maps_real for m in token_maps
         ) + 1e-12
 
-        for mode, scale_note, fname in (
-            ("global", "global vmax (faithful magnitudes)",
+        per_token_variants = (
+            (all_token_maps_full, global_vmax_full, "global",
+             "global vmax (faithful magnitudes, full Sk incl. padding)",
              f"cross_attn_per_text_token_megablocks{suffix}.png"),
-            ("rownorm", "per-row vmax (spatial-structure view)",
+            (all_token_maps_full, global_vmax_full, "rownorm",
+             "per-row vmax (spatial-structure view, full Sk)",
              f"cross_attn_per_text_token_megablocks{suffix}_rownorm.png"),
-        ):
+            (all_token_maps_real, global_vmax_real, "global",
+             "real-tokens-only renormalized, global vmax (padding sink removed)",
+             f"cross_attn_per_text_token_megablocks{suffix}_realnorm.png"),
+        )
+
+        for token_maps_set, gvmax, mode, scale_note, fname in per_token_variants:
             fig, axes = plt.subplots(ntok, K, figsize=(2.6 * K, 2.4 * ntok), squeeze=False)
             for ti in range(ntok):
-                token_maps = all_token_maps[ti]
-                vmax = global_vmax if mode == "global" else (
+                token_maps = token_maps_set[ti]
+                vmax = gvmax if mode == "global" else (
                     max(float(m.max()) for m in token_maps) + 1e-12
                 )
                 last_im = None
@@ -475,41 +505,51 @@ def _save_figures(
             plt.close(fig)
 
         # --- 3) Top-N tokens by reception (last MB) × mega-blocks ---
+        # Emitted twice: original (full-Sk probs) and *_realnorm (real-tokens-only renormalized).
         last_recv = mb_results[K - 1]["recv"][:seq_len]
         top_idx = np.argsort(-last_recv)[: min(top_n_tokens, seq_len)]
         n = len(top_idx)
-        fig3, axes3 = plt.subplots(n, K, figsize=(2.6 * K, 2.4 * n), squeeze=False)
-        for r, ti in enumerate(top_idx):
-            token_maps = [
-                mb_results[mb_id][probs_key][:, ti].reshape(h, w) for mb_id in range(K)
-            ]
-            vmax = max(float(m.max()) for m in token_maps) + 1e-12
-            last_im = None
-            for mb_id in range(K):
-                heat = _maybe_upsample(token_maps[mb_id], height, width, upsample_to_pixel)
-                ax = axes3[r, mb_id]
-                last_im = ax.imshow(
-                    heat, cmap="coolwarm", vmin=0.0, vmax=vmax,
-                    extent=extent, aspect="auto",
-                )
-                if r == 0:
-                    ax.set_title(mb_label(mb_id), fontsize=9)
-                if mb_id == 0:
-                    ax.set_ylabel(f"{ti}: {token_labels[ti][:14]!r}", fontsize=8)
-                ax.set_xticks([])
-                ax.set_yticks([])
-            plt.colorbar(last_im, ax=axes3[r, K - 1], fraction=0.04, pad=0.02)
-        fig3.suptitle(
-            f"Top-{n} text tokens (ranked by MB{K - 1} reception); columns = mega-blocks "
-            f"[{view_note}]",
-            fontsize=10,
-        )
-        fig3.tight_layout()
-        fig3.savefig(
-            os.path.join(out_dir, f"cross_attn_top_tokens_megablocks{suffix}.png"),
-            dpi=150,
-        )
-        plt.close(fig3)
+
+        for use_realnorm, fname in (
+            (False, f"cross_attn_top_tokens_megablocks{suffix}.png"),
+            (True,  f"cross_attn_top_tokens_megablocks{suffix}_realnorm.png"),
+        ):
+            fig3, axes3 = plt.subplots(n, K, figsize=(2.6 * K, 2.4 * n), squeeze=False)
+            for r, ti in enumerate(top_idx):
+                token_maps = []
+                for mb_id in range(K):
+                    P = mb_results[mb_id][probs_key]
+                    if use_realnorm:
+                        P_real = P[:, :seq_len]
+                        P_use = P_real / np.maximum(P_real.sum(axis=-1, keepdims=True), 1e-12)
+                    else:
+                        P_use = P
+                    token_maps.append(P_use[:, ti].reshape(h, w))
+                vmax = max(float(m.max()) for m in token_maps) + 1e-12
+                last_im = None
+                for mb_id in range(K):
+                    heat = _maybe_upsample(token_maps[mb_id], height, width, upsample_to_pixel)
+                    ax = axes3[r, mb_id]
+                    last_im = ax.imshow(
+                        heat, cmap="coolwarm", vmin=0.0, vmax=vmax,
+                        extent=extent, aspect="auto",
+                    )
+                    if r == 0:
+                        ax.set_title(mb_label(mb_id), fontsize=9)
+                    if mb_id == 0:
+                        ax.set_ylabel(f"{ti}: {token_labels[ti][:14]!r}", fontsize=8)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+                plt.colorbar(last_im, ax=axes3[r, K - 1], fraction=0.04, pad=0.02)
+            note = " [real-tokens-only renormalized]" if use_realnorm else ""
+            fig3.suptitle(
+                f"Top-{n} text tokens (ranked by MB{K - 1} reception); columns = mega-blocks "
+                f"[{view_note}]{note}",
+                fontsize=10,
+            )
+            fig3.tight_layout()
+            fig3.savefig(os.path.join(out_dir, fname), dpi=150)
+            plt.close(fig3)
 
         # --- 4) Spatial sharpness summary per mega-block (entropy & max-prob) ---
         fig4, axes4 = plt.subplots(K, 2, figsize=(8, 2.6 * K), squeeze=False)
