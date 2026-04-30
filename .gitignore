@@ -3,6 +3,7 @@
 /scripts
 /diffusers
 /.vscode
+/attn_visualizations
 *.pkl
 *.safetensors
 *.pth
