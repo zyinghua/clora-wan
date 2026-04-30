@@ -1,7 +1,12 @@
 python examples/wanvideo/visualize_cross_attention.py \
-  --prompt "A pencil drawing of a red sports car on a road." \
-  --out_dir ./visualizations/5-3_starts_f0/style_pencil_block19 \
-  --blocks 15,16,17,18,19 \
+  --prompt "a video of a pink rose blooming" \
+  --out_dir ./visualizations/pink_rose_blooming \
+  --num_mega_blocks 6 \
+  --stride 5 \
+  --start_block 0 \
   --frame_index 0 \
-  --per_token_block 19 \
-  --local_model_path /users/erluo/scratch/models/clora-wan
+  --frame_view both \
+  --upsample_to_pixel \
+  --aggregation full \
+  --num_inference_steps 50 \
+  --local_model_path /workspace/autodl-tmp/models/clora-wan
