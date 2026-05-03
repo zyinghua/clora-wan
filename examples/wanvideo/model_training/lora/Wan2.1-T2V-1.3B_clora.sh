@@ -6,7 +6,7 @@ export DIFFSYNTH_MODEL_BASE_PATH="/workspace/autodl-tmp/models/clora-wan"
 
 LORA_BLOCK_IDS="0"
 LORA_BLOCK_STRIDE="5"
-OUTPUT_PATH="./models/train/Wan2.1-T2V-1.3B_blora_g${LORA_BLOCK_IDS}_s${LORA_BLOCK_STRIDE}"
+OUTPUT_PATH="./models/train/Wan2.1-T2V-1.3B_clora_g${LORA_BLOCK_IDS}_s${LORA_BLOCK_STRIDE}"
 VIDEO_PATH=""
 VIDEO_PROMPT=""
 
@@ -32,10 +32,10 @@ accelerate launch examples/wanvideo/model_training/train.py \
   "${DATASET_ARGS[@]}" \
   --height 480 \
   --width 832 \
-  --dataset_repeat 100 \
+  --dataset_repeat 1000 \
   --model_id_with_origin_paths "Wan-AI/Wan2.1-T2V-1.3B:diffusion_pytorch_model*.safetensors,Wan-AI/Wan2.1-T2V-1.3B:models_t5_umt5-xxl-enc-bf16.pth,Wan-AI/Wan2.1-T2V-1.3B:Wan2.1_VAE.pth" \
   --learning_rate 1e-4 \
-  --num_epochs 10 \
+  --num_epochs 1 \
   --remove_prefix_in_ckpt "pipe.dit." \
   --output_path "${OUTPUT_PATH}" \
   --lora_base_model "dit" \
