@@ -4,9 +4,9 @@ set -euo pipefail
 
 export DIFFSYNTH_MODEL_BASE_PATH="/workspace/autodl-tmp/models/clora-wan"
 
-LORA_BLOCK_IDS="0"
+LORA_BLOCK_IDS="1,2"
 LORA_BLOCK_STRIDE="5"
-OUTPUT_PATH="./models/train/Wan2.1-T2V-1.3B_clora_g${LORA_BLOCK_IDS}_s${LORA_BLOCK_STRIDE}"
+OUTPUT_PATH="./models/train/Wan2.1-T2V-1.3B_clora_g${LORA_BLOCK_IDS//,/-}_s${LORA_BLOCK_STRIDE}"
 VIDEO_PATH=""
 VIDEO_PROMPT=""
 
