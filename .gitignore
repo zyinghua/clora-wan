@@ -176,3 +176,10 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 /visualizations/
+/ablation_runs/
+/blora-diffusers/
+*.mp4
+/lora_videos/
+/lora_videos_unprocessed/
+/ablation_runs2/
+/viclip_evaluation/

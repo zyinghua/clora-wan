@@ -1,16 +1,19 @@
 import torch
 import re
+import os
 from PIL import Image
 from diffsynth.utils.data import save_video, VideoData
 from diffsynth.pipelines.wan_video import WanVideoPipeline, ModelConfig
+
+OUTPUT_DIR = "ablation_runs2"
 
 pipe = WanVideoPipeline.from_pretrained(
     torch_dtype=torch.bfloat16,
     device="cuda",
     model_configs=[
-        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="diffusion_pytorch_model*.safetensors", offload_device="cpu", local_model_path="/workspace/autodl-tmp/models/clora-wan"),
-        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="models_t5_umt5-xxl-enc-bf16.pth", offload_device="cpu", local_model_path="/workspace/autodl-tmp/models/clora-wan"),
-        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="Wan2.1_VAE.pth", offload_device="cpu", local_model_path="/workspace/autodl-tmp/models/clora-wan"),
+        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="diffusion_pytorch_model*.safetensors", offload_device="cpu", local_model_path="/users/erluo/scratch/models/clora-wan"),
+        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="models_t5_umt5-xxl-enc-bf16.pth", offload_device="cpu", local_model_path="/users/erluo/scratch/models/clora-wan"),
+        ModelConfig(model_id="Wan-AI/Wan2.1-T2V-1.3B", origin_file_pattern="Wan2.1_VAE.pth", offload_device="cpu", local_model_path="/users/erluo/scratch/models/clora-wan"),
     ],
 )
 
@@ -19,32 +22,176 @@ NEGATIVE_PROMPT = "色调艳丽，过曝，静态，细节模糊不清，字幕�
 # ---------------------------------------------------------
 # ALL OPTIMAL ABLATION PAIRS INCLUDED HERE
 # ---------------------------------------------------------
-ablation_tasks =[
+ablation_tasks = [
     # === CONTENT ABLATION (Changing identity, keeping shape/motion stable) ===
+    {"category": "content",
+        "base_prompt": "A video of a frog jumping.",
+        "ablation_prompt": "A video of a toad jumping."
+    },
     {
         "category": "content",
-        "base_prompt": "A video of an astronaut walking.",
-        "ablation_prompt": "A video of a robot walking."
+        "base_prompt": "A video of a monkey climbing.",
+        "ablation_prompt": "A video of a squirrel climbing."
     },
-
-    # === STYLE ABLATION (Changing texture/color/medium, keeping shape/motion stable) ===
     {
-        "category": "style",
-        "base_prompt": "A video of a blue sedan driving.",
-        "ablation_prompt": "A video of a red sedan driving."
+        "category": "content",
+        "base_prompt": "A video of a lion roaring.",
+        "ablation_prompt": "A video of a bear roaring."
     },
+    {
+        "category": "content",
+        "base_prompt": "A video of a rocket launching.",
+        "ablation_prompt": "A video of a spaceship launching."
+    },
+    {
+        "category": "content",
+        "base_prompt": "A video of a spider crawling.",
+        "ablation_prompt": "A video of a crab crawling."
+    },
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a dog running.",
+    #     "ablation_prompt": "A video of a cat running."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a car driving.",
+    #     "ablation_prompt": "A video of a truck driving."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a plane flying.",
+    #     "ablation_prompt": "A video of a helicopter flying."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a guitar playing.",
+    #     "ablation_prompt": "A video of a piano playing."
+    # },
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a fish swimming.",
+    #     "ablation_prompt": "A video of a turtle swimming."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a man reading.",
+    #     "ablation_prompt": "A video of a woman reading."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of an astronaut walking.",
+    #     "ablation_prompt": "A video of a robot walking."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a train moving.",
+    #     "ablation_prompt": "A video of a bus moving."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a penguin walking.",
+    #     "ablation_prompt": "A video of a duck walking."
+    # }, 
+    # {
+    #     "category": "content",
+    #     "base_prompt": "A video of a sword swinging.",
+    #     "ablation_prompt": "A video of a stick swinging."
+    # }, 
 
-    # === MOTION ABLATION (Changing temporal dynamics, keeping pose/structure stable) ===
+    # # === STYLE ABLATION (Changing texture/color/medium, keeping shape/motion stable) ===
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a black chair spinning.",
+    #     "ablation_prompt": "A video of a white chair spinning."
+    # }, 
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a red light flashing.",
+    #     "ablation_prompt": "A video of a blue light flashing."
+    # }, 
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a white bird flying.",
+    #     "ablation_prompt": "A video of a black bird flying."
+    # }, 
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a pink flower blooming.",
+    #     "ablation_prompt": "A video of a white flower blooming."
+    # }, 
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a black cat sleeping.",
+    #     "ablation_prompt": "A video of a brown cat sleeping."
+    # }, 
+    # {
+    #     "category": "style",
+    #     "base_prompt": "A video of a white cup falling.",
+    #     "ablation_prompt": "A video of a black cup falling."
+    # }, 
+
+    # # === MOTION ABLATION (Changing temporal dynamics, keeping pose/structure stable) ===
     {
         "category": "motion",
-        "base_prompt": "A video of a man walking forward toward the camera.",
-        "ablation_prompt": "A video of a man walking backward away from the camera."
+        "base_prompt": "A video of a ball rolling left.",
+        "ablation_prompt": "A video of a ball rolling right."
     },
     {
         "category": "motion",
-        "base_prompt": "A video shot of a bird walking.",
-        "ablation_prompt": "A video shot of a bird flying."
+        "base_prompt": "A video of a car driving forward.",
+        "ablation_prompt": "A video of a car driving backward."
     },
+    {
+        "category": "motion",
+        "base_prompt": "A video of a monkey walking.",
+        "ablation_prompt": "A video of a monkey climbing."
+    },
+    {
+        "category": "motion",
+        "base_prompt": "A video of a door swinging open.",
+        "ablation_prompt": "A video of a door swinging closed."
+    },
+    {
+        "category": "motion",
+        "base_prompt": "A video of a person swimming forward.",
+        "ablation_prompt": "A video of a person floating still."
+    }
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video of a man walking forward toward the camera.",
+    #     "ablation_prompt": "A video of a man walking backward away from the camera."
+    # }, 
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video shot of a bird walking.",
+    #     "ablation_prompt": "A video shot of a bird flying."
+    # }, 
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video of a person jumping up.",
+    #     "ablation_prompt": "A video of a person falling down."
+    # }, 
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video of a train moving left.",
+    #     "ablation_prompt": "A video of a train moving right."
+    # },
+    #         {
+    #             "category": "motion",
+    #             "base_prompt": "A video of a ball bouncing up.",
+    #             "ablation_prompt": "A video of a ball rolling forward."
+    #         }, 
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video of a dog standing still.",
+    #     "ablation_prompt": "A video of a dog running fast."
+    # }, 
+    # {
+    #     "category": "motion",
+    #     "base_prompt": "A video of a man jumping up.",
+    #     "ablation_prompt": "A video of a man crouching down."
+    # } 
 ]
 
 ablation_range = {
@@ -66,8 +213,6 @@ for ablation_block_size in ablation_range.keys():
         base_prompt = task["base_prompt"]
         ablation_prompt = task["ablation_prompt"]
         
-        prompt_str = format_filename_string(base_prompt)
-        
         print(f"\n========================================")
         print(f"Starting ablation for {category.upper()}")
         print(f"Base:     {base_prompt}")
@@ -84,12 +229,17 @@ for ablation_block_size in ablation_range.keys():
                 ablation_prompt=ablation_prompt,
                 ablation_block_size=ablation_block_size,
                 ablation_block_id=ablation_block_id,
-                seed=None,
+                seed=42,
                 tiled=True,
             )
             
-            # Formats precisely to: video_wan_out_<motion/style/content>-<block_size>-<ablation_block_id>-<text_prompt_with_underline_connection>.mp4
-            out_name = f"video_wan_out_{category}-{ablation_block_size}-{ablation_block_id}-{prompt_str}-{format_filename_string(ablation_prompt)}.mp4"
+            base_str = format_filename_string(base_prompt)
+            ablation_str = format_filename_string(ablation_prompt)
+            
+            out_dir = os.path.join(OUTPUT_DIR, category, f"{ablation_block_size}-{ablation_block_id}")
+            os.makedirs(out_dir, exist_ok=True)
+            
+            out_name = os.path.join(out_dir, f"{base_str}-{ablation_str}.mp4")
             save_video(video, out_name, fps=15, quality=5)
             
             print(f"  -> Saved {out_name}")
