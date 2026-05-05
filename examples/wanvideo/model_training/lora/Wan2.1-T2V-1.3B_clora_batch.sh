@@ -29,7 +29,6 @@ VIDEOS=(
   "bird2.mp4"                       # "A [n]"
   "person-away-from-cam.mp4"        # "A [o]"
   "person-skateboarding.mp4"        # "A [p]"
-  "person-walking-away-cam2.mp4"    # "A [q]"
 )
 
 PROMPTS=(
@@ -49,7 +48,6 @@ PROMPTS=(
   "A [n]"
   "A [o]"
   "A [p]"
-  "A [q]"
 )
 
 if [[ ${#VIDEOS[@]} -ne ${#PROMPTS[@]} ]]; then
