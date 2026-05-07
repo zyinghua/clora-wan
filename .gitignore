@@ -183,3 +183,5 @@ cython_debug/
 /lora_videos_unprocessed/
 /ablation_runs2/
 /viclip_evaluation/
+/prelim_qual/
+/failed_examples/
